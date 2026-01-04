@@ -35,9 +35,9 @@ This project requires a C++17 compliant compiler (MinGW-w64 recommended) and Ope
 2. COMPILATION
    You must manually link the OpenSSL libraries and the Windows system dependencies (ws2_32, gdi32, crypt32).
 
-   g++ main.cpp -o sikorsky.exe ^
-     -I"path/to/openssl/include" ^
-     -L"path/to/openssl/lib" ^
+   g++ main.cpp -o sikorsky.exe 
+     -I"path/to/openssl/include" 
+     -L"path/to/openssl/lib" 
      -lssl -lcrypto -lws2_32 -lgdi32 -lcrypt32
 
 ---
