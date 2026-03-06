@@ -117,7 +117,7 @@ std::vector<std::pair<std::string, std::string>> folderIterator(std::string fold
     for (auto dir_entry : std::filesystem::recursive_directory_iterator(folderPath)) {
         std::string absPath = dir_entry.path().string();
         std::string relPath = std::filesystem::relative(absPath, folderPath).string();
-        locationList.push_back({absPath, relPath});
+        locationList.emplace_back(absPath, relPath);
     }
 
     return locationList;
@@ -177,6 +177,18 @@ bool encryptFile(std::string inPath, std::ofstream& outStream, std::string passw
     unsigned char outBuffer[bufferSize + 16]; // Output can be slightly larger due to padding
     int outLen;
 
+    const std::string testPhrase = "SIKORSKY-CORE-V1";
+
+    if (1 != EVP_EncryptUpdate(ctx, outBuffer, &outLen, reinterpret_cast<const unsigned char*>(testPhrase.c_str()), testPhrase.length())) {
+        std::cerr << "Encryption Update failed!" << std::endl;
+        return false;
+    }
+    
+    // Write encrypted chunk to disk
+    outStream.write(reinterpret_cast<char*>(outBuffer), outLen);
+
+
+
     while (inStream.read(reinterpret_cast<char*>(inBuffer), bufferSize)) {
         int bytesRead = inStream.gcount();
         
@@ -211,6 +223,10 @@ bool encryptFile(std::string inPath, std::ofstream& outStream, std::string passw
     
     std::cout << "Folder Encrypted" << std::endl;
     return true;
+}
+void setColor(int color) {
+    // 7 = White, 12 = Red, 10 = Green, 14 = Yellow
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
 }
 
 bool decryptFile(std::string inPath, std::ofstream& outStream, std::string password) {
@@ -248,6 +264,8 @@ bool decryptFile(std::string inPath, std::ofstream& outStream, std::string passw
     unsigned char inBuffer[bufferSize];
     unsigned char outBuffer[bufferSize + 16]; // Output buffer needs wiggle room
     int outLen;
+    bool isFirstChunk = true;
+    const std::string testPhrase = "SIKORSKY-CORE-V1";
 
     while (inStream.read(reinterpret_cast<char*>(inBuffer), bufferSize)) {
         int bytesRead = inStream.gcount();
@@ -257,9 +275,26 @@ bool decryptFile(std::string inPath, std::ofstream& outStream, std::string passw
             std::cerr << "Decryption Update failed!" << std::endl;
             return false;
         }
-        
-        // Write decrypted chunk to disk
-        outStream.write(reinterpret_cast<char*>(outBuffer), outLen);
+        if (isFirstChunk && outLen > 0) {
+            isFirstChunk = false; // Never run this block again
+            
+            // Read the first bytes to see if they match our check phrase
+            std::string decryptedStart(reinterpret_cast<char*>(outBuffer), std::min((int)testPhrase.length(), outLen));
+            
+            if (decryptedStart != testPhrase) {
+                setColor(12); // Red text
+                std::cerr << "\n[!] ACCESS DENIED: Incorrect Password or Corrupted Archive!\n" << std::endl;
+                setColor(7);  // Reset text
+                EVP_CIPHER_CTX_free(ctx);
+                return false; // Fail fast and abort!
+            }
+            
+            // It matched! Write the REST of the buffer to the file (skipping over the magic phrase)
+            outStream.write(reinterpret_cast<char*>(outBuffer + testPhrase.length()), outLen - testPhrase.length());
+        } else {
+            // Normal write for all subsequent chunks
+            outStream.write(reinterpret_cast<char*>(outBuffer), outLen);
+        }
     }
 
     // Handle the last chunk
@@ -289,10 +324,6 @@ bool decryptFile(std::string inPath, std::ofstream& outStream, std::string passw
     return true;
 }
 
-void setColor(int color) {
-    // 7 = White, 12 = Red, 10 = Green, 14 = Yellow
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
-}
 
 void clearScreen() {
     system("cls");
@@ -315,39 +346,65 @@ void printLogo() {
 void handleEncryption() {
     std::string folderPath, fileName, filePath, password, pause;
     std::cout << "Folder Path: ";
-    std::cin >> folderPath;
+    std::getline(std::cin, folderPath);
+    if (folderPath[0] == '?') {
+        folderPath = folderPath.substr(1, folderPath.length()-1);
+    }
 
     std::cout << "Encrypted File Output Name: ";
-    std::cin >> fileName;
+    std::getline(std::cin, fileName);
+    if (fileName[0] == '?') {
+        fileName = fileName.substr(1, fileName.length()-1);
+    }
 
     std::cout << "Output file Path: ";
-    std::cin >> filePath;
+    std::getline(std::cin, filePath);
+    if (filePath[0] == '?') {
+        filePath = filePath.substr(1, filePath.length()-1);
+    }
 
     std::cout << "Password: ";
-    std::cin >> password;
+    std::getline(std::cin, password);
 
     std::ofstream temp("temp.dat", std::ios::binary);
     packFolder(folderPath, temp);
+    temp.close();
 
     std::ofstream output(filePath+"\\"+fileName+".sikorsky", std::ios::binary);
 
     bool succ = encryptFile("temp.dat", output, password);
+    output.close();
 
     std::cout << "Encrypted File saved at: " << filePath+"\\"+fileName+".sikorsky" << std::endl;
-    std::remove("temp.dat");
+    int delStat = std::remove("temp.dat");
+    if (delStat) {
+        setColor(12);
+        std::cout << "CAUTION: ";
+        setColor(7);
+        std::cout << "Unable to delete the temporary file at: " << std::filesystem::current_path() << std::endl;
+    }
     std::cin >> pause;
 }
 
 void handleDecryption() {
     std::string folderPath, filePath, password, pause;
     std::cout << "File Path: ";
-    std::cin >> filePath;
+    std::getline(std::cin, filePath);
+    if (filePath[0] == '?') {
+        filePath = filePath.substr(1, filePath.length()-1);
+    }
 
     std::cout << "Extraction Location: ";
-    std::cin >> folderPath;
+    std::getline(std::cin, folderPath);
+    if (folderPath[0] == '?') {
+        folderPath = folderPath.substr(1, folderPath.length()-1);
+    }
+    if (!folderPath.empty() && folderPath.back() != '/' && folderPath.back() != '\\') {
+        folderPath += '\\';
+    }
 
     std::cout << "Password: ";
-    std::cin >> password;
+    std::getline(std::cin, password);
 
     std::cout << std::endl;
 
@@ -357,12 +414,14 @@ void handleDecryption() {
     std::ofstream temp("temp.dat", std::ios::binary);
 
     bool de = decryptFile(filePath, temp, password);
+    temp.close();
     
     if (de) {
         std::cout << "Decryption Successfull......" << std::endl;
         std::cout << "Unpacking....." << std::endl;
         std::ifstream unpack("temp.dat", std::ios::binary);
         unPack(unpack, folderPath);
+        unpack.close();
     } else {
         std::cin >> pause;
     }
@@ -370,7 +429,13 @@ void handleDecryption() {
     std::cout << std::endl;
     std::cout << std::endl;
     std::cout << "Files Decrypted at: " << folderPath << std::endl;
-    std::remove("temp.dat");
+    int delStat = std::remove("temp.dat");
+    if (delStat) {
+        setColor(12);
+        std::cout << "CAUTION: ";
+        setColor(7);
+        std::cout << "Unable to delete the temporary file at: " << std::filesystem::current_path() << std::endl;
+    }
     std::cin >> pause;
 
 }
@@ -390,6 +455,7 @@ int main() {
 
         char choice;
         std::cin >> choice;
+        std::cin.ignore(10000, '\n');
 
         if (choice == '1') {
             handleEncryption();
