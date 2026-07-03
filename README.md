@@ -1,5 +1,6 @@
+# SikorskyArchive
+
 <p align="center">
-  <br>
   <h1 align="center">SIKORSKY ARCHIVE</h1>
 </p>
 
@@ -7,90 +8,211 @@
   <i>"Secrets are not meant to be hidden. They are meant to be secured."</i>
 </p>
 
-<br>
-
 <p align="center">
-  <b>SYSTEMS LEVEL ENCRYPTION // AES-256-GCM // CUSTOM PACKING PROTOCOL</b>
+  <b>C++17 • OpenSSL EVP • AES-256-GCM • Custom Binary Archive Format</b>
 </p>
 
-<hr>
+---
 
-<h3>:: SYSTEM OVERVIEW</h3>
+## Overview
 
-<p>
-Sikorsky Archive is a high-performance systems tool designed to pack entire directory structures into opaque, cryptographically secure binary blobs. Built in C++17, it implements a custom streaming protocol for file packing and leverages the OpenSSL EVP interface for hardware-accelerated encryption.
-</p>
+SikorskyArchive is a systems programming project written in **C++17** that packs entire directory trees into a custom binary archive before encrypting them using authenticated encryption with **AES-256-GCM**.
 
-<p>
-This is not a wrapper. It is a raw implementation of file stream manipulation, block cipher chaining, and manual memory management.
-</p>
+Rather than relying on existing archive formats such as ZIP or TAR, the project implements its own binary serialization protocol for recursively storing directory structures, file metadata, and file contents. The encrypted archive can later be authenticated, decrypted, and reconstructed while preserving the original directory hierarchy.
 
-<br>
+The project was built to explore low-level file I/O, binary serialization, filesystem traversal, streaming data processing, and modern cryptography using the OpenSSL EVP interface.
 
-<h3>:: TECHNICAL SPECIFICATIONS</h3>
+---
 
-| Component | Specification |
-| :--- | :--- |
-| **Core Logic** | C++17 (Standard) |
-| **Cryptography** | OpenSSL (EVP Interface) |
-| **Algorithm** | AES-256-GCM (Galois/Counter Mode) |
-| **Hashing** | PBKDF2 with SHA-256 (600,000 Iterations) |
-| **Interface** | Windows Console API (TUI) |
-| **Output** | `.sikorsky` (Custom Binary Format) |
+# Architecture
 
-<br>
+```
+Input Directory
+       │
+       ▼
+Recursive File Traversal
+       │
+       ▼
+Custom Archive Serializer
+(relative path + metadata + file bytes)
+       │
+       ▼
+PBKDF2 Key Derivation
+       │
+       ▼
+AES-256-GCM Encryption
+       │
+       ▼
+.sikorsky Archive
+```
 
-<h3>:: CAPABILITIES</h3>
+During extraction:
 
-**[ + ] Custom Packing Protocol** Implements a proprietary binary format that serializes file metadata, relative paths, and binary content into a single continuous stream before encryption.
+```
+.sikorsky Archive
+       │
+       ▼
+Authentication Tag Verification
+       │
+       ▼
+AES-256-GCM Decryption
+       │
+       ▼
+Archive Parser
+       │
+       ▼
+Directory Reconstruction
+```
 
-**[ + ] Military-Grade Cryptography** Secured using AES-256-GCM and PBKDF2 with a random salt. Random Initialization Vectors (IV) are generated for every session to prevent pattern analysis. The salt, IV, and authentication tag are embedded in the file for stateless decryption.
+---
 
-**[ + ] Ephemeral Processing** Intermediate unencrypted data (`temp.dat`) exists only during the transformation window and is shredded from the disk immediately upon completion.
+# Features
 
-**[ + ] Zero Dependency** Statically linked against OpenSSL. No DLL hell. No external installers. Just a single, portable executable.
+## Custom Binary Archive Format
 
-<hr>
+Designed a custom archive format that serializes
 
-<h3>:: BUILD PROTOCOL</h3>
+* Relative file paths
+* File metadata
+* File sizes
+* Raw binary file contents
 
-<p>This project requires a C++17 compliant compiler (MinGW-w64 recommended) and OpenSSL static libraries.</p>
+into a continuous binary stream before encryption.
 
-<b>Manual Compilation Command:</b>
-<pre>
+Unlike conventional archive utilities, the archive layout is implemented entirely from scratch.
+
+---
+
+## Recursive Directory Reconstruction
+
+Recursively traverses directory trees during packing and reconstructs the complete hierarchy during extraction while preserving relative paths.
+
+---
+
+## Authenticated Encryption
+
+Uses the OpenSSL EVP interface to perform authenticated encryption with
+
+* AES-256-GCM
+* Random per-session salt
+* Random IV generation
+* Authentication tag verification
+
+Any modification to the archive or an incorrect password causes authentication failure during decryption.
+
+---
+
+## Password-Based Key Derivation
+
+Encryption keys are derived from the user password using
+
+* PBKDF2
+* SHA-256
+* 600,000 iterations
+
+This avoids directly using user passwords as encryption keys.
+
+---
+
+## Streaming File Processing
+
+Processes archive data using buffered I/O instead of loading entire files into memory, allowing large folders to be processed efficiently.
+
+---
+
+## Secure Intermediate File Handling
+
+Intermediate plaintext archives are securely overwritten before deletion to reduce data remanence after encryption or extraction.
+
+---
+
+## Archive Extraction Safety
+
+Implements path traversal validation during extraction to reject malicious archive entries attempting to escape the destination directory.
+
+---
+
+# Technical Highlights
+
+* C++17
+* OpenSSL EVP API
+* AES-256-GCM
+* PBKDF2 (SHA-256)
+* Recursive filesystem traversal
+* Custom binary serialization protocol
+* Streaming file I/O
+* Windows Console API
+* Manual buffer management
+
+---
+
+# Build
+
+Requirements
+
+* C++17 compiler
+* MinGW-w64 (recommended)
+* OpenSSL static libraries
+
+Compile using
+
+```bash
 g++ main.cpp -o sikorsky.exe ^
     -I"./include" ^
     -L"./lib" ^
     -lssl -lcrypto -lws2_32 -lgdi32 -lcrypt32
-</pre>
+```
 
-<br>
+---
 
-<h3>:: OPERATION MANUAL</h3>
+# Usage
 
-The tool operates via a Text User Interface (TUI).
+## Encrypt
 
-#### // LOCK MODE (Pack & Encrypt)
-1. The system scans the target folder recursively.
-2. A binary stream is generated containing the file structure.
-3. The stream is encrypted using AES-256-GCM into a `.sikorsky` archive.
-4. The source stream is destroyed.
+1. Select **LOCK**
+2. Choose a directory
+3. Enter an output location
+4. Enter a password
+5. A `.sikorsky` archive is generated
 
-#### // UNLOCK MODE (Decrypt & Unpack)
-1. The system validates the archive integrity using the GCM authentication tag.
-2. AES-256-GCM decryption restores the binary stream.
-3. The unpacker reconstructs the original directory tree.
+---
 
-<br>
+## Decrypt
 
-<hr>
+1. Select **UNLOCK**
+2. Choose a `.sikorsky` archive
+3. Enter the password
+4. Choose an extraction directory
+5. Original directory structure is restored
 
-<p align="center">
-  <b>DISCLAIMER</b><br>
-  This software is provided "as is". AES-256 is mathematically secure; if you lose your password, your data is irretrievable.<br>
-  <i>Use responsibly.</i>
-</p>
+---
 
-<p align="center">
-  Built by <b>Arul Saini</b>
-</p>
+# Project Motivation
+
+This project was built as an exercise in systems programming to understand how archive utilities work internally.
+
+Instead of relying on existing libraries for packaging, the archive format, serialization logic, filesystem traversal, and extraction pipeline were implemented manually. The project also explores authenticated encryption through OpenSSL's EVP interface while emphasizing low-level control over binary data and file streams.
+
+---
+
+# Future Improvements
+
+* Eliminate the intermediate plaintext archive by streaming directly into the encryption pipeline
+* Parallelize encryption and decryption for improved throughput
+* Cross-platform support (Linux/macOS)
+* Refactor into modular components (`archive`, `crypto`, `filesystem`, `cli`)
+* CMake build system
+* Archive compression before encryption
+* Archive format versioning
+
+---
+
+# Disclaimer
+
+This project is intended for educational and systems programming purposes.
+
+Loss of the encryption password makes encrypted archives unrecoverable.
+
+---
+
+Built by **Arul Saini**
