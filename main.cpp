@@ -288,6 +288,20 @@ bool decryptFile(std::string inPath, std::ofstream& outStream, std::string passw
                 EVP_CIPHER_CTX_free(ctx);
                 return false; // Fail fast and abort!
             }
+
+            char passCheck;
+
+            std::cout << "Password Match....." << std::endl;
+            std::cout << std::endl;
+            std::cout << std::endl;
+            std::cout << "Do you wish to continue to decrypt the file? Yes[Y]/No[n]: ";
+            std::cin >> passCheck;
+            std::cout << std::endl;
+
+            if (passCheck == 'n' || passCheck == 'N') {
+                std::cout << "Skipping the Extraction" << std::endl;
+                return false;
+            }
             
             // It matched! Write the REST of the buffer to the file (skipping over the magic phrase)
             outStream.write(reinterpret_cast<char*>(outBuffer + testPhrase.length()), outLen - testPhrase.length());
@@ -322,6 +336,31 @@ bool decryptFile(std::string inPath, std::ofstream& outStream, std::string passw
     
     std::cout << "Decrypted: " << inPath << std::endl;
     return true;
+}
+
+std::string maskPassword() {
+    std::string password = "";
+    char ch;
+
+    // 13 is the ASCII value for the Enter key ('\r')
+    while ((ch = _getch()) != 13) { 
+        // 8 is the ASCII value for the Backspace key ('\b')
+        if (ch == 8) {
+            if (password.length() > 0) {
+                password.pop_back(); // Remove last character from the string
+                // Move cursor back, print a space to overwrite the *, then move cursor back again
+                std::cout << "\b \b"; 
+            }
+        } 
+        // Ignore special keys (like arrows) or Ctrl+C to keep it simple
+        // 32 to 126 covers all standard printable ASCII characters
+        else if (ch >= 32 && ch <= 126) {
+            password += ch;
+            std::cout << '*';
+        }
+    }
+    std::cout << std::endl; // Move to the next line after they press Enter
+    return password;
 }
 
 
@@ -364,7 +403,7 @@ void handleEncryption() {
     }
 
     std::cout << "Password: ";
-    std::getline(std::cin, password);
+    password = maskPassword();
 
     std::ofstream temp("temp.dat", std::ios::binary);
     packFolder(folderPath, temp);
@@ -384,6 +423,7 @@ void handleEncryption() {
         std::cout << "Unable to delete the temporary file at: " << std::filesystem::current_path() << std::endl;
     }
     std::cin >> pause;
+    return;
 }
 
 void handleDecryption() {
@@ -404,7 +444,7 @@ void handleDecryption() {
     }
 
     std::cout << "Password: ";
-    std::getline(std::cin, password);
+    password = maskPassword();
 
     std::cout << std::endl;
 
@@ -422,21 +462,23 @@ void handleDecryption() {
         std::ifstream unpack("temp.dat", std::ios::binary);
         unPack(unpack, folderPath);
         unpack.close();
+        std::cout << std::endl;
+        std::cout << std::endl;
+        std::cout << "Files Decrypted at: " << folderPath << std::endl;
+        int delStat = std::remove("temp.dat");
+        if (delStat) {
+            setColor(12);
+            std::cout << "CAUTION: ";
+            setColor(7);
+            std::cout << "Unable to delete the temporary file at: " << std::filesystem::current_path() << std::endl;
+        }
+        std::cin >> pause;
     } else {
         std::cin >> pause;
+        return;
     }
 
-    std::cout << std::endl;
-    std::cout << std::endl;
-    std::cout << "Files Decrypted at: " << folderPath << std::endl;
-    int delStat = std::remove("temp.dat");
-    if (delStat) {
-        setColor(12);
-        std::cout << "CAUTION: ";
-        setColor(7);
-        std::cout << "Unable to delete the temporary file at: " << std::filesystem::current_path() << std::endl;
-    }
-    std::cin >> pause;
+    
 
 }
 
