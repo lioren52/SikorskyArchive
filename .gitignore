@@ -1,0 +1,25 @@
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled Executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Temporary files
+temp.dat
+*.sikorsky
+*.log
+
+# Visual Studio / VS Code
+.vscode/
+.vs/
+*.suo
+*.user
+
+# Build directories
+bin/
+build/
+out/
