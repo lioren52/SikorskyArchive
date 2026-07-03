@@ -10,7 +10,7 @@
 <br>
 
 <p align="center">
-  <b>SYSTEMS LEVEL ENCRYPTION // AES-256-CBC // CUSTOM PACKING PROTOCOL</b>
+  <b>SYSTEMS LEVEL ENCRYPTION // AES-256-GCM // CUSTOM PACKING PROTOCOL</b>
 </p>
 
 <hr>
@@ -33,8 +33,8 @@ This is not a wrapper. It is a raw implementation of file stream manipulation, b
 | :--- | :--- |
 | **Core Logic** | C++17 (Standard) |
 | **Cryptography** | OpenSSL (EVP Interface) |
-| **Algorithm** | AES-256-CBC (Cipher Block Chaining) |
-| **Hashing** | SHA-256 (Key Derivation) |
+| **Algorithm** | AES-256-GCM (Galois/Counter Mode) |
+| **Hashing** | PBKDF2 with SHA-256 (600,000 Iterations) |
 | **Interface** | Windows Console API (TUI) |
 | **Output** | `.sikorsky` (Custom Binary Format) |
 
@@ -44,7 +44,7 @@ This is not a wrapper. It is a raw implementation of file stream manipulation, b
 
 **[ + ] Custom Packing Protocol** Implements a proprietary binary format that serializes file metadata, relative paths, and binary content into a single continuous stream before encryption.
 
-**[ + ] Military-Grade Cryptography** Secured using AES-256. Random Initialization Vectors (IV) are generated for every session to prevent pattern analysis. The IV is embedded in the file header for stateless decryption.
+**[ + ] Military-Grade Cryptography** Secured using AES-256-GCM and PBKDF2 with a random salt. Random Initialization Vectors (IV) are generated for every session to prevent pattern analysis. The salt, IV, and authentication tag are embedded in the file for stateless decryption.
 
 **[ + ] Ephemeral Processing** Intermediate unencrypted data (`temp.dat`) exists only during the transformation window and is shredded from the disk immediately upon completion.
 
@@ -73,12 +73,12 @@ The tool operates via a Text User Interface (TUI).
 #### // LOCK MODE (Pack & Encrypt)
 1. The system scans the target folder recursively.
 2. A binary stream is generated containing the file structure.
-3. The stream is encrypted using AES-256-CBC into a `.sikorsky` archive.
+3. The stream is encrypted using AES-256-GCM into a `.sikorsky` archive.
 4. The source stream is destroyed.
 
 #### // UNLOCK MODE (Decrypt & Unpack)
-1. The system validates the archive integrity and IV.
-2. AES-256-CBC decryption restores the binary stream.
+1. The system validates the archive integrity using the GCM authentication tag.
+2. AES-256-GCM decryption restores the binary stream.
 3. The unpacker reconstructs the original directory tree.
 
 <br>
