@@ -11,46 +11,6 @@
 #include <vector>
 #include <windows.h> // For colors
 
-void packFile(std::string inPath, std::ofstream &outStream,
-              std::string fileName) {
-  std::cout << std::endl;
-  std::ifstream inStream(inPath, std::ios::binary);
-
-  inStream.seekg(0, std::ifstream::end);
-  long long size = inStream.tellg();
-  inStream.seekg(0, std::ifstream::beg);
-
-  if (size == -1) {
-    std::cout << "Error opening the file: " << fileName << std::endl;
-    return;
-  }
-
-  std::cout << "Packing the file: " << fileName << std::endl;
-  std::cout << "File Size: " << size << " bytes" << std::endl;
-
-  outStream.seekp(0, std::ifstream::end);
-
-  outStream.write(fileName.c_str(), fileName.length());
-  outStream.put('\0');
-
-  outStream.write(reinterpret_cast<char *>(&size), sizeof(size));
-
-  int bufferSize = 1024;
-  std::vector<char> buffer(bufferSize);
-
-  while (inStream) {
-    inStream.read(buffer.data(), bufferSize);
-    std::streamsize bytesRead = inStream.gcount();
-
-    if (bytesRead > 0) {
-      outStream.write(buffer.data(), bytesRead);
-    }
-  }
-
-  std::cout << "Packed!!!" << std::endl;
-  std::cout << "--------------------------------------" << std::endl;
-}
-
 void unPack(std::ifstream &inStream, std::string outPath) {
 
   inStream.seekg(0, std::ifstream::end);
@@ -118,29 +78,21 @@ void unPack(std::ifstream &inStream, std::string outPath) {
   }
 }
 
-std::vector<std::pair<std::string, std::string>>
-folderIterator(std::string folderPath) {
+std::vector<std::pair<std::string, std::string>> folderIterator(std::string folderPath) {
   std::vector<std::pair<std::string, std::string>> locationList;
 
-  for (auto dir_entry :
-       std::filesystem::recursive_directory_iterator(folderPath)) {
+  for (auto dir_entry : std::filesystem::recursive_directory_iterator(folderPath)) {
+
     std::string absPath = dir_entry.path().string();
-    std::string relPath =
-        std::filesystem::relative(absPath, folderPath).string();
-    locationList.emplace_back(absPath, relPath);
+    std::string relPath = std::filesystem::relative(absPath, folderPath).string();
+
+    if (std::filesystem::is_regular_file(absPath)) {
+      locationList.emplace_back(absPath, relPath);
+    }
+
   }
 
   return locationList;
-}
-
-void packFolder(std::string folderPath, std::ofstream &outStream) {
-  std::vector<std::pair<std::string, std::string>> locationList =
-      folderIterator(folderPath);
-  for (std::pair<std::string, std::string> ite : locationList) {
-    if (std::filesystem::is_regular_file(ite.first)) {
-      packFile(ite.first, outStream, ite.second);
-    }
-  }
 }
 
 void deriveKey(const std::string &password, const unsigned char *salt,
@@ -242,6 +194,109 @@ bool encryptFile(std::string inPath, std::ofstream &outStream,
 void setColor(int color) {
   // 7 = White, 12 = Red, 10 = Green, 14 = Yellow
   SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+
+bool encryptOnFly(std::string folderPath, std::ofstream &outStream, std::string password) {
+
+  // 1. Prepare Salt, Key and IV
+  unsigned char salt[16];
+  generateRandomBytes(salt, 16);
+  unsigned char key[32];
+  deriveKey(password, salt, key);
+  unsigned char iv[12]; // GCM standard IV size is 12 bytes
+  generateRandomBytes(iv, 12);
+
+  // 2. Write Salt and IV to the file FIRST (Unencrypted)
+  outStream.write(reinterpret_cast<char *>(salt), 16);
+  outStream.write(reinterpret_cast<char *>(iv), 12);
+
+  // 3. Setup OpenSSL Context
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+
+  // Initialize encryption engine with AES-256-GCM
+  if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, key, iv)) {
+    std::cerr << "Encryption Init failed!" << std::endl;
+    return false;
+  }
+
+  // 4. The Loop
+  const int bufferSize = 4096; // 4KB is optimal
+  unsigned char inBuffer[bufferSize];
+  unsigned char outBuffer[bufferSize +
+                          16]; // Output can be slightly larger due to padding
+  int outLen;
+
+  std::vector<std::pair<std::string, std::string>> locationList = folderIterator(folderPath);
+
+  for (auto item : locationList) {
+
+    std::ifstream inStream(item.first, std::ios::binary);
+
+    inStream.seekg(0, std::ifstream::end);
+    long long fileSize = inStream.tellg();
+    inStream.seekg(0, std::ifstream::beg);
+
+    if (1 != EVP_EncryptUpdate(ctx, outBuffer, &outLen, reinterpret_cast<const unsigned char*>(item.second.c_str()), item.second.length()+1)) {
+      std::cerr << "Encryption Update failed!" << std::endl;
+      return false;
+    }
+    outStream.write(reinterpret_cast<char *>(outBuffer), outLen);
+
+    if (fileSize == -1) {
+      std::cout << "Error opening the file: " << item.second << std::endl;
+      return false;
+    }
+
+    if (1 != EVP_EncryptUpdate(ctx, outBuffer, &outLen, reinterpret_cast<const unsigned char*>(&fileSize), sizeof(fileSize))) {
+      std::cerr << "Encryption Update failed!" << std::endl;
+      return false;
+    }
+    outStream.write(reinterpret_cast<char *>(outBuffer), outLen);
+
+    while (inStream.read(reinterpret_cast<char *>(inBuffer), bufferSize)) {
+      int bytesRead = inStream.gcount();
+
+      // Encrypt this chunk
+      if (1 != EVP_EncryptUpdate(ctx, outBuffer, &outLen, inBuffer, bytesRead)) {
+        std::cerr << "Encryption Update failed!" << std::endl;
+        return false;
+      }
+
+      // Write encrypted chunk to disk
+      outStream.write(reinterpret_cast<char *>(outBuffer), outLen);
+    }
+
+    // Handle the last chunk
+    int bytesRead = inStream.gcount();
+    if (bytesRead > 0) {
+      if (1 != EVP_EncryptUpdate(ctx, outBuffer, &outLen, inBuffer, bytesRead)) {
+        std::cerr << "Encryption Update failed!" << std::endl;
+        return false;
+      }
+      outStream.write(reinterpret_cast<char *>(outBuffer), outLen);
+    }
+  }
+
+  // 5. Finalize
+  if (1 != EVP_EncryptFinal_ex(ctx, outBuffer, &outLen)) {
+    std::cerr << "Encryption Final failed!" << std::endl;
+    return false;
+  }
+  outStream.write(reinterpret_cast<char *>(outBuffer), outLen);
+
+  // 6. Get the GCM authentication tag and append it to the file
+  unsigned char tag[16];
+  if (1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag)) {
+    std::cerr << "Failed to get GCM tag!" << std::endl;
+    return false;
+  }
+  outStream.write(reinterpret_cast<char *>(tag), 16);
+
+  // 7. Cleanup
+  EVP_CIPHER_CTX_free(ctx);
+
+  std::cout << "Folder Encrypted" << std::endl;
+  return true;
 }
 
 bool decryptFile(std::string inPath, std::ofstream &outStream,
@@ -441,26 +496,15 @@ void handleEncryption() {
     return;
   }
 
-  std::ofstream temp("temp.dat", std::ios::binary);
-  packFolder(folderPath, temp);
-  temp.close();
-
   std::ofstream output(filePath + "\\" + fileName + ".sikorsky",
                        std::ios::binary);
 
-  bool succ = encryptFile("temp.dat", output, password);
+  bool succ = encryptOnFly(folderPath, output, password);
   output.close();
 
   std::cout << "Encrypted File saved at: "
             << filePath + "\\" + fileName + ".sikorsky" << std::endl;
   int delStat = shredFile("temp.dat");
-  if (delStat) {
-    setColor(12);
-    std::cout << "CAUTION: ";
-    setColor(7);
-    std::cout << "Unable to shred the temporary file at: "
-              << std::filesystem::current_path() << "\\temp.dat" << std::endl;
-  }
   std::cin >> pause;
   return;
 }
